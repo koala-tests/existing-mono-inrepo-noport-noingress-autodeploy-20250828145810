@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: existing-mono-inrepo-noport-noingress-autodeploy-20250828145810
+  labels:
+    app: existing-mono-inrepo-noport-noingress-autodeploy-20250828145810
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: existing-mono-inrepo-noport-noingress-autodeploy-20250828145810
+  template:
+    spec:
+      imagePullSecrets:
+      - name: ghcr-image-pull-secret
+      containers:
+      - name: existing-mono-inrepo-noport-noingress-autodeploy-20250828145810
+        image: ghcr.io/koala-tests/existing-mono-inrepo-noport-noingress-autodeploy-20250828145810:latest
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2048Mi
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: existing-mono-inrepo-noport-noingress-autodeploy-20250828145810-container-vars
+    metadata:
+      labels:
+        app: existing-mono-inrepo-noport-noingress-autodeploy-20250828145810
