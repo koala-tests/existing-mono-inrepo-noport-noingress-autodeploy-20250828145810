@@ -1,0 +1,45 @@
+name: 'Create Deployment Matrix'
+description: 'Creates a matrix for service deployment and handles tag truncation'
+
+inputs:
+  overlay:
+    description: 'The overlay to use for kustomize'
+    required: false
+  branch:
+    description: 'The branch to use for deployment'
+    required: false
+  tag:
+    description: 'The image tag to deploy'
+    required: true
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+  repo-path:
+    description: 'The path to the repo'
+    required: false
+    default: '.'
+
+outputs:
+  matrix:
+    description: 'A JSON matrix for service deployments'
+    value: ${{ fromJson(steps.create-matrix.outputs.matrix) }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Create matrix for deployment
+      id: create-matrix
+      working-directory: ${{ inputs.repo-path }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        echo "Read .koala-monorepo.json from the repo root to identify services, then use their .koala.toml files to extract their deployment configuration for different environments."
+        if [ -n "${{ inputs.overlay }}" ]; then
+          MATRIX=$(npx --yes workflow-utils get-services-env-config -dir . -outputFormat github-matrix -branch ${{ inputs.branch || 'main' }} -envFilter ${{ inputs.overlay }} -actionTag ${{ inputs.tag }})
+        else
+          MATRIX=$(npx --yes workflow-utils get-services-env-config -dir . -outputFormat github-matrix -branch ${{ inputs.branch || 'main' }} -actionTag ${{ inputs.tag }})
+        fi
+        echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+        echo "Generated matrix: $MATRIX"

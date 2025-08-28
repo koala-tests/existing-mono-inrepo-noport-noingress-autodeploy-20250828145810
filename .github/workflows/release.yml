@@ -1,0 +1,106 @@
+# Create a new Release.
+
+# This workflow will update tag/version, build and push a Docker container to the container registry.
+# If configured to auto-deploy, it will also deploy the new version to the cluster.
+name: Release
+
+#  Prevent concurrent runs on the same branch/tag ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+jobs:
+  image_tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.image_tag.outputs.tag }}
+      commit_hash: ${{ steps.image_tag.outputs.commit_hash }}
+    permissions:
+      contents: "write"
+      id-token: "write"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine image tag
+        id: image_tag
+        uses: KoalaOps/determine-image-tag@v1
+        with:
+          tag_format: branch-date
+          include_counter: false
+
+  prepare_service_matrix:
+    runs-on: ubuntu-latest
+    needs: image_tag
+    env:
+      overlay: dev
+    outputs:
+      matrix: ${{ steps.create-matrix.outputs.matrix }}
+    steps:
+      - name: Print inputs
+        run: |
+          echo "overlay: ${{ env.overlay }}"
+          echo "tag: ${{ needs.image_tag.outputs.tag }}"
+          echo "ref: ${{ github.ref }}"
+
+      - uses: actions/checkout@v4
+
+      - name: Set GitHub Token if needed (when using deployment repo separate from source repo)
+        id: github-auth-token
+        uses: ./.github/actions/github-auth-token
+        with:
+          GHA_PAT: ${{ secrets.GHA_PAT }}
+          GH_APP_PK: ${{ secrets.GH_APP_PK }}
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+
+      - name: Create matrix
+        id: create-matrix
+        uses: ./.github/actions/create-deployment-matrix
+        with:
+          tag: ${{ needs.image_tag.outputs.tag }}
+          branch: ${{ github.ref }}
+          overlay: ${{ env.overlay }}
+          github-token: ${{ steps.github-auth-token.outputs.token || github.token }}
+  
+  build:
+    needs: [prepare_service_matrix, image_tag]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare_service_matrix.outputs.matrix) }}
+    permissions:
+      contents: "write"
+      id-token: "write"
+      packages: "write"
+    uses: ./.github/workflows/build_image.yml
+    secrets: inherit
+    with:
+      tag: ${{ matrix.service_tag }}
+      ref: ${{ needs.image_tag.outputs.commit_hash }}
+      service_dir: ${{ matrix.service_dir }}
+      service_name: ${{ matrix.service_name }}
+
+  # Deploy the new version to the cluster
+
+  deploy:
+    needs: [prepare_service_matrix, build]
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
+    permissions:
+      contents: "write"
+      id-token: "write"
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare_service_matrix.outputs.matrix) }}
+    with:
+      ref: ${{ github.ref }}
+      tag: ${{ matrix.service_tag }}
+      service_name: ${{ matrix.service_name }}
+      service_dir: ${{ matrix.service_dir }}
+      overlay: ${{ matrix.overlay }}
+      cloud_provider_location_cluster: ${{ matrix.cloud_provider }}/${{ matrix.cluster_location }}/${{ matrix.cluster }}
+      deployment_repo: ${{ matrix.deployment_repo }}
+      deployment_folder_path: ${{ matrix.deployment_folder_path }}
+
